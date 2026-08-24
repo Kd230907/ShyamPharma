@@ -795,6 +795,35 @@
 
         }
 
+
+        /* =====================================================
+           FIELD HINT
+        ===================================================== */
+
+        .field-hint {
+
+            display:
+                block;
+
+            margin-top:
+                8px;
+
+            font-size:
+                13px;
+
+            color:
+                #6b7280;
+
+        }
+
+
+        body.dark-mode .field-hint {
+
+            color:
+                #9ca3af;
+
+        }
+
     </style>
 
 </head>
@@ -1252,6 +1281,10 @@
                             id="productImage"
                             accept="image/*"
                         >
+
+                        <small class="field-hint">
+                            Photos are compressed automatically before upload.
+                        </small>
 
                         <img
                             id="imagePreview"
@@ -1742,19 +1775,22 @@
     ></div>
 
 
+    <!-- Supabase -->
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.58.0/dist/umd/supabase.js"></script>
+
+    <script src="supabase-config.js"></script>
+
+    <script src="supabase-data.js"></script>
+
+
     <script>
 
         /* =====================================================
-           STORAGE KEYS
-        ===================================================== */
-
-        const STORAGE_KEY = "shyamPharmaProducts";
-
-        const SETTINGS_KEY = "shyamPharmaSettings";
-
-
-        /* =====================================================
            DEFAULT PRODUCTS
+
+           Only used by the "Reset to default products"
+           action in the settings panel.
         ===================================================== */
 
         const defaultProducts = [
@@ -1838,86 +1874,28 @@
 
 
         /* =====================================================
-           STATUS NORMALIZATION
+           PRODUCT CACHE
+
+           products is a local mirror of the products table.
+           Every write goes to Supabase first and the mirror
+           is only updated once the write succeeds.
         ===================================================== */
 
-        function normalizeStatus(status) {
+        let products = [];
 
-            if (
-                status === "Available" ||
-                status === "Out of Stock"
-            ) {
-
-                return status;
-
-            }
-
-            return "Available";
-
-        }
+        let editingId = null;
 
 
         /* =====================================================
            LOAD PRODUCTS
         ===================================================== */
 
-        function loadProducts() {
+        async function loadProducts() {
 
             try {
 
-                const savedData =
-                    localStorage.getItem(STORAGE_KEY);
-
-
-                if (!savedData) {
-
-                    return defaultProducts.map(
-                        function(product) {
-
-                            return {
-
-                                ...product,
-
-                                status:
-                                    normalizeStatus(
-                                        product.status
-                                    )
-
-                            };
-
-                        }
-                    );
-
-                }
-
-
-                const savedProducts =
-                    JSON.parse(savedData);
-
-
-                if (!Array.isArray(savedProducts)) {
-
-                    return defaultProducts;
-
-                }
-
-
-                return savedProducts.map(
-                    function(product) {
-
-                        return {
-
-                            ...product,
-
-                            status:
-                                normalizeStatus(
-                                    product.status
-                                )
-
-                        };
-
-                    }
-                );
+                products =
+                    await fetchProducts();
 
             }
 
@@ -1928,43 +1906,13 @@
                     error
                 );
 
-                return defaultProducts;
-
-            }
-
-        }
-
-
-        let products = loadProducts();
-
-        let editingId = null;
-
-
-        /* =====================================================
-           SAVE PRODUCTS
-        ===================================================== */
-
-        function saveProducts() {
-
-            try {
-
-                localStorage.setItem(
-                    STORAGE_KEY,
-                    JSON.stringify(products)
-                );
-
-            }
-
-            catch (error) {
-
-                console.error(
-                    "Could not save products:",
-                    error
-                );
 
                 showToast(
-                    "Unable to save product data."
+                    "Could not load products from the database."
                 );
+
+
+                products = [];
 
             }
 
@@ -2265,9 +2213,15 @@
             "productForm"
         ).addEventListener(
             "submit",
-            function(event) {
+            async function(event) {
 
                 event.preventDefault();
+
+
+                const submitButton =
+                    event.target.querySelector(
+                        "button[type='submit']"
+                    );
 
 
                 const imageFile =
@@ -2332,51 +2286,68 @@
                 };
 
 
-                if (imageFile) {
+                if (submitButton) {
 
-                    const reader =
-                        new FileReader();
-
-
-                    reader.onload =
-                        function(e) {
-
-                            productData.image =
-                                e.target.result;
-
-
-                            saveProductData(
-                                productData
-                            );
-
-                        };
-
-
-                    reader.readAsDataURL(
-                        imageFile
-                    );
+                    submitButton.disabled = true;
 
                 }
 
-                else {
 
-                    if (editingId !== null) {
+                const existingProduct =
+                    editingId !== null
+                        ? products.find(
+                            function(product) {
 
-                        const oldProduct =
-                            products.find(
-                                function(product) {
+                                return product.id ===
+                                    editingId;
 
-                                    return product.id ===
-                                        editingId;
+                            }
+                        )
+                        : null;
 
-                                }
+
+                let replacedImage = "";
+
+
+                try {
+
+
+                    /* =================================
+                       IMAGE
+
+                       A newly chosen file is compressed
+                       in the browser, uploaded to
+                       Supabase Storage, and only its
+                       public URL is stored on the row.
+                       With no new file, an edit keeps
+                       the existing image.
+                       ================================= */
+
+                    if (imageFile) {
+
+                        productData.image =
+                            await uploadProductImage(
+                                imageFile,
+                                showToast
                             );
 
 
+                        if (
+                            existingProduct &&
+                            existingProduct.image
+                        ) {
+
+                            replacedImage =
+                                existingProduct.image;
+
+                        }
+
+                    }
+
+                    else if (existingProduct) {
+
                         productData.image =
-                            oldProduct
-                                ? oldProduct.image
-                                : "";
+                            existingProduct.image || "";
 
                     }
 
@@ -2387,9 +2358,51 @@
                     }
 
 
-                    saveProductData(
+                    await saveProductData(
                         productData
                     );
+
+
+                    /* =================================
+                       The image that was just replaced
+                       is now unreferenced, so remove it
+                       from the bucket.
+                       ================================= */
+
+                    if (replacedImage) {
+
+                        await deleteProductImage(
+                            replacedImage
+                        );
+
+                    }
+
+                }
+
+                catch (error) {
+
+                    console.error(
+                        "Could not save product:",
+                        error
+                    );
+
+
+                    showToast(
+                        describeError(
+                            error,
+                            "Could not save the product."
+                        )
+                    );
+
+                }
+
+                finally {
+
+                    if (submitButton) {
+
+                        submitButton.disabled = false;
+
+                    }
 
                 }
 
@@ -2401,9 +2414,17 @@
            SAVE PRODUCT DATA
         ===================================================== */
 
-        function saveProductData(productData) {
+        async function saveProductData(productData) {
 
             if (editingId !== null) {
+
+
+                const saved =
+                    await updateProduct(
+                        editingId,
+                        productData
+                    );
+
 
                 const index =
                     products.findIndex(
@@ -2418,18 +2439,7 @@
 
                 if (index !== -1) {
 
-                    products[index] = {
-
-                        ...products[index],
-
-                        ...productData,
-
-                        status:
-                            normalizeStatus(
-                                productData.status
-                            )
-
-                    };
+                    products[index] = saved;
 
                 }
 
@@ -2442,19 +2452,14 @@
 
             else {
 
-                products.push({
 
-                    id:
-                        Date.now(),
+                const saved =
+                    await insertProduct(
+                        productData
+                    );
 
-                    ...productData,
 
-                    status:
-                        normalizeStatus(
-                            productData.status
-                        )
-
-                });
+                products.unshift(saved);
 
 
                 showToast(
@@ -2464,8 +2469,6 @@
             }
 
 
-            saveProducts();
-
             displayProducts();
 
             resetForm();
@@ -2473,6 +2476,45 @@
             scrollToSection(
                 "productsSection"
             );
+
+        }
+
+
+        /* =====================================================
+           ERROR MESSAGES
+        ===================================================== */
+
+        function describeError(error, fallback) {
+
+            const message =
+                String(
+                    (error && error.message) || ""
+                );
+
+
+            if (
+                message.toLowerCase()
+                    .includes("row-level security")
+            ) {
+
+                return "Your session has expired. Please sign in again.";
+
+            }
+
+
+            if (
+                message.toLowerCase()
+                    .includes("failed to fetch")
+            ) {
+
+                return "Could not reach the server. Check your connection.";
+
+            }
+
+
+            return message
+                ? fallback + " " + message
+                : fallback;
 
         }
 
@@ -2602,7 +2644,7 @@
            DELETE PRODUCT
         ===================================================== */
 
-        function deleteProduct(id) {
+        async function deleteProduct(id) {
 
             const product =
                 products.find(
@@ -2634,6 +2676,38 @@
             }
 
 
+            try {
+
+                await deleteProductRow(id);
+
+            }
+
+            catch (error) {
+
+                console.error(
+                    "Could not delete product:",
+                    error
+                );
+
+
+                showToast(
+                    describeError(
+                        error,
+                        "Could not delete the product."
+                    )
+                );
+
+
+                return;
+
+            }
+
+
+            await deleteProductImage(
+                product.image
+            );
+
+
             products =
                 products.filter(
                     function(item) {
@@ -2643,8 +2717,6 @@
                     }
                 );
 
-
-            saveProducts();
 
             displayProducts();
 
@@ -2815,7 +2887,7 @@
            LOAD SETTINGS
         ===================================================== */
 
-        function loadSettings() {
+        async function loadSettings() {
 
             let settings =
                 defaultSettings;
@@ -2824,9 +2896,7 @@
             try {
 
                 const saved =
-                    localStorage.getItem(
-                        SETTINGS_KEY
-                    );
+                    await fetchSettings();
 
 
                 if (saved) {
@@ -2835,7 +2905,7 @@
 
                         ...defaultSettings,
 
-                        ...JSON.parse(saved)
+                        ...saved
 
                     };
 
@@ -2922,7 +2992,7 @@
            SAVE SETTINGS
         ===================================================== */
 
-        function saveSettings() {
+        async function saveSettings() {
 
             const selectedTheme =
                 document.querySelector(
@@ -2975,10 +3045,31 @@
             };
 
 
-            localStorage.setItem(
-                SETTINGS_KEY,
-                JSON.stringify(settings)
-            );
+            try {
+
+                await saveSettingsRow(settings);
+
+            }
+
+            catch (error) {
+
+                console.error(
+                    "Could not save settings:",
+                    error
+                );
+
+
+                showToast(
+                    describeError(
+                        error,
+                        "Could not save the settings."
+                    )
+                );
+
+
+                return;
+
+            }
 
 
             applyTheme(
@@ -3042,7 +3133,7 @@
            CHANGE ADMIN PASSWORD
         ===================================================== */
 
-        function changeAdminPassword() {
+        async function changeAdminPassword() {
 
             const currentPassword =
                 document.getElementById(
@@ -3106,34 +3197,51 @@
             }
 
 
-            const savedPassword =
-                localStorage.getItem(
-                    "shyamPharmaAdminPassword"
+            try {
+
+                await changePassword(
+                    currentPassword,
+                    newPassword
+                );
+
+            }
+
+            catch (error) {
+
+                console.error(
+                    "Could not change password:",
+                    error
                 );
 
 
-            const currentStoredPassword =
-                savedPassword || "admin123";
+                if (
+                    String(
+                        (error && error.message) || ""
+                    ).toLowerCase()
+                        .includes("invalid login")
+                ) {
 
+                    showToast(
+                        "Current password is incorrect."
+                    );
 
-            if (
-                currentPassword !==
-                currentStoredPassword
-            ) {
+                }
 
-                showToast(
-                    "Current password is incorrect."
-                );
+                else {
+
+                    showToast(
+                        describeError(
+                            error,
+                            "Could not change the password."
+                        )
+                    );
+
+                }
+
 
                 return;
 
             }
-
-
-            localStorage.setItem(
-                "shyamPharmaAdminPassword",
-                newPassword
-            );
 
 
             document.getElementById(
@@ -3228,7 +3336,7 @@
            RESET DEFAULT PRODUCTS
         ===================================================== */
 
-        function resetProducts() {
+        async function resetProducts() {
 
             const confirmed =
                 confirm(
@@ -3243,19 +3351,62 @@
             }
 
 
-            products =
-                defaultProducts.map(
+            showToast(
+                "Resetting products..."
+            );
+
+
+            const imageUrls =
+                products.map(
                     function(product) {
 
-                        return {
-                            ...product
-                        };
+                        return product.image;
 
                     }
                 );
 
 
-            saveProducts();
+            try {
+
+                await deleteAllProducts();
+
+
+                await deleteProductImages(
+                    imageUrls
+                );
+
+
+                for (const product of defaultProducts) {
+
+                    await insertProduct(product);
+
+                }
+
+
+                await loadProducts();
+
+            }
+
+            catch (error) {
+
+                console.error(
+                    "Could not reset products:",
+                    error
+                );
+
+
+                showToast(
+                    describeError(
+                        error,
+                        "Could not reset the products."
+                    )
+                );
+
+
+                return;
+
+            }
+
 
             displayProducts();
 
@@ -3271,7 +3422,7 @@
            CLEAR ALL PRODUCTS
         ===================================================== */
 
-        function clearAllProducts() {
+        async function clearAllProducts() {
 
             const confirmed =
                 confirm(
@@ -3286,10 +3437,50 @@
             }
 
 
+            const imageUrls =
+                products.map(
+                    function(product) {
+
+                        return product.image;
+
+                    }
+                );
+
+
+            try {
+
+                await deleteAllProducts();
+
+
+                await deleteProductImages(
+                    imageUrls
+                );
+
+            }
+
+            catch (error) {
+
+                console.error(
+                    "Could not clear products:",
+                    error
+                );
+
+
+                showToast(
+                    describeError(
+                        error,
+                        "Could not delete the products."
+                    )
+                );
+
+
+                return;
+
+            }
+
+
             products = [];
 
-
-            saveProducts();
 
             displayProducts();
 
@@ -3338,15 +3529,14 @@
            LOGOUT
         ===================================================== */
 
-        function logout() {
+        async function logout() {
 
-            localStorage.removeItem(
-                "shyamPharmaAdminLoggedIn"
+            await signOut();
+
+
+            window.location.replace(
+                "admin.html"
             );
-
-
-            window.location.href =
-                "admin.html";
 
         }
 
@@ -3389,11 +3579,44 @@
 
         /* =====================================================
            INITIAL LOAD
+
+           The dashboard is only rendered once Supabase
+           confirms a valid session. Without one the visitor
+           is sent back to the login page, and the Row Level
+           Security policies reject their writes regardless.
         ===================================================== */
 
-        loadSettings();
+        (async function initDashboard() {
 
-        displayProducts();
+            if (!isSupabaseConfigured()) {
+
+                showToast(
+                    "Supabase is not configured. Add your project key to supabase-config.js."
+                );
+
+                return;
+
+            }
+
+
+            const session =
+                await requireAdminSession();
+
+
+            if (!session) {
+
+                return;
+
+            }
+
+
+            await loadSettings();
+
+            await loadProducts();
+
+            displayProducts();
+
+        })();
 
     </script>
 

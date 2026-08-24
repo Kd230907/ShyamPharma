@@ -1,0 +1,10 @@
+# JetBrains
+.idea/
+
+# macOS
+.DS_Store
+
+# Supabase CLI
+.branches
+.temp
+supabase/.temp
