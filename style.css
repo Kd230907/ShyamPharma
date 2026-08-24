@@ -3118,3 +3118,29 @@ select:focus-visible {
         var(--primary);
 
 }
+
+/* =====================================================
+   PRODUCT GRID MESSAGES
+
+   Loading / empty / error states rendered by
+   displayProducts() in script.js.
+   ===================================================== */
+
+.products-message {
+
+    grid-column:
+        1 / -1;
+
+    padding:
+        60px 20px;
+
+    text-align:
+        center;
+
+    font-size:
+        17px;
+
+    color:
+        #6b7280;
+
+}

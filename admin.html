@@ -1460,7 +1460,7 @@
                         >
 
                             <span>
-                                User ID / Email
+                                Email Address
                                 <span class="required">*</span>
                             </span>
 
@@ -1476,9 +1476,9 @@
 
 
                             <input
-                                type="text"
+                                type="email"
                                 id="userId"
-                                placeholder="Enter your User ID or Email"
+                                placeholder="Enter your email address"
                                 autocomplete="username"
                                 required
                             >
@@ -1720,18 +1720,16 @@
 
 
 
+    <!-- Supabase -->
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.58.0/dist/umd/supabase.js"></script>
+
+    <script src="supabase-config.js"></script>
+
+    <script src="supabase-data.js"></script>
+
+
     <script>
-
-
-        /* =====================================================
-           LOGIN CREDENTIALS
-           
-           CHANGE THESE VALUES TO YOUR CLIENT'S CREDENTIALS.
-        ===================================================== */
-
-        const ADMIN_USER_ID = "admin";
-
-        const ADMIN_PASSWORD = "admin123";
 
 
         /* =====================================================
@@ -1762,32 +1760,71 @@
             document.getElementById("errorMessage");
 
 
+        const submitButton =
+            loginForm.querySelector(
+                "button[type='submit']"
+            );
+
+
         const toast =
             document.getElementById("toast");
 
 
 
         /* =====================================================
-           REMEMBERED USER
+           ALREADY SIGNED IN
+
+           A visitor who still holds a valid Supabase session
+           is sent straight to the dashboard. The remembered
+           email address is only a convenience - it is not a
+           credential and grants nothing on its own.
         ===================================================== */
 
-        window.addEventListener("DOMContentLoaded", function() {
-
-            const savedUser =
-                localStorage.getItem(
-                    "shyamPharmaRememberedUser"
-                );
+        window.addEventListener(
+            "DOMContentLoaded",
+            async function() {
 
 
-            if (savedUser) {
+                const savedUser =
+                    localStorage.getItem(
+                        "shyamPharmaRememberedUser"
+                    );
 
-                userIdInput.value = savedUser;
 
-                rememberMe.checked = true;
+                if (savedUser) {
+
+                    userIdInput.value = savedUser;
+
+                    rememberMe.checked = true;
+
+                }
+
+
+                if (!isSupabaseConfigured()) {
+
+                    showError(
+                        "Supabase is not configured. Add your project key to supabase-config.js."
+                    );
+
+                    return;
+
+                }
+
+
+                const session =
+                    await getSession();
+
+
+                if (session) {
+
+                    window.location.replace(
+                        "dashboard.html"
+                    );
+
+                }
 
             }
-
-        });
+        );
 
 
 
@@ -1834,16 +1871,21 @@
 
         /* =====================================================
            LOGIN
+
+           Credentials are verified by Supabase Auth. Nothing
+           in this file decides whether the login succeeded,
+           which is what stops a visitor from granting
+           themselves access from the browser console.
         ===================================================== */
 
         loginForm.addEventListener(
             "submit",
-            function(event) {
+            async function(event) {
 
                 event.preventDefault();
 
 
-                const enteredUser =
+                const enteredEmail =
                     userIdInput.value.trim();
 
 
@@ -1856,70 +1898,25 @@
                 );
 
 
-                if (
-                    enteredUser === ADMIN_USER_ID &&
-                    enteredPassword === ADMIN_PASSWORD
-                ) {
+                setLoading(true);
 
 
-                    /* ================================
-                       REMEMBER USER
-                    ================================= */
+                try {
 
-                    if (rememberMe.checked) {
-
-                        localStorage.setItem(
-                            "shyamPharmaRememberedUser",
-                            enteredUser
-                        );
-
-                    }
-
-                    else {
-
-                        localStorage.removeItem(
-                            "shyamPharmaRememberedUser"
-                        );
-
-                    }
-
-
-                    /* ================================
-                       LOGIN SESSION
-                    ================================= */
-
-                    localStorage.setItem(
-                        "shyamPharmaAdminLoggedIn",
-                        "true"
-                    );
-
-
-                    showToast(
-                        "Login successful! Opening dashboard..."
-                    );
-
-
-                    setTimeout(
-                        function() {
-
-                            window.location.href =
-                                "dashboard.html";
-
-                        },
-                        700
+                    await signIn(
+                        enteredEmail,
+                        enteredPassword
                     );
 
                 }
 
-                else {
+                catch (error) {
+
+                    setLoading(false);
 
 
-                    errorMessage.textContent =
-                        "Invalid User ID or Password. Please check your credentials and try again.";
-
-
-                    errorMessage.classList.add(
-                        "show"
+                    showError(
+                        describeAuthError(error)
                     );
 
 
@@ -1927,7 +1924,48 @@
 
                     passwordInput.focus();
 
+
+                    return;
+
                 }
+
+
+                /* ================================
+                   REMEMBER EMAIL
+                ================================= */
+
+                if (rememberMe.checked) {
+
+                    localStorage.setItem(
+                        "shyamPharmaRememberedUser",
+                        enteredEmail
+                    );
+
+                }
+
+                else {
+
+                    localStorage.removeItem(
+                        "shyamPharmaRememberedUser"
+                    );
+
+                }
+
+
+                showToast(
+                    "Login successful! Opening dashboard..."
+                );
+
+
+                setTimeout(
+                    function() {
+
+                        window.location.href =
+                            "dashboard.html";
+
+                    },
+                    700
+                );
 
             }
         );
@@ -1935,14 +1973,144 @@
 
 
         /* =====================================================
-           FORGOT PASSWORD
+           ERROR MESSAGES
         ===================================================== */
 
-        function forgotPassword() {
+        function describeAuthError(error) {
 
-            alert(
-                "Please contact the authorized SHYAM PHARMA administrator to reset your password."
-            );
+            const message =
+                String(
+                    (error && error.message) || ""
+                ).toLowerCase();
+
+
+            if (
+                message.includes("invalid login")
+            ) {
+
+                return "Invalid email or password. Please check your credentials and try again.";
+
+            }
+
+
+            if (
+                message.includes("email not confirmed")
+            ) {
+
+                return "This account has not been confirmed yet. Confirm it from the Supabase dashboard.";
+
+            }
+
+
+            if (
+                message.includes("failed to fetch")
+            ) {
+
+                return "Could not reach the server. Check your internet connection and try again.";
+
+            }
+
+
+            return (error && error.message)
+                ? error.message
+                : "Login failed. Please try again.";
+
+        }
+
+
+        function showError(message) {
+
+            errorMessage.textContent = message;
+
+            errorMessage.classList.add("show");
+
+        }
+
+
+
+        /* =====================================================
+           BUTTON LOADING STATE
+        ===================================================== */
+
+        const submitButtonLabel =
+            submitButton
+                ? submitButton.innerHTML
+                : "";
+
+
+        function setLoading(isLoading) {
+
+            if (!submitButton) {
+
+                return;
+
+            }
+
+
+            submitButton.disabled = isLoading;
+
+
+            if (isLoading) {
+
+                submitButton.textContent =
+                    "Signing in...";
+
+            }
+
+            else {
+
+                submitButton.innerHTML =
+                    submitButtonLabel;
+
+            }
+
+        }
+
+
+
+        /* =====================================================
+           FORGOT PASSWORD
+
+           Sends a Supabase password reset email.
+        ===================================================== */
+
+        async function forgotPassword() {
+
+            const email =
+                userIdInput.value.trim();
+
+
+            if (!email) {
+
+                showError(
+                    "Enter your email address first, then click Forgot Password."
+                );
+
+                return;
+
+            }
+
+
+            try {
+
+                await sbClient
+                    .auth
+                    .resetPasswordForEmail(email);
+
+
+                showToast(
+                    "Password reset email sent. Check your inbox."
+                );
+
+            }
+
+            catch (error) {
+
+                showError(
+                    describeAuthError(error)
+                );
+
+            }
 
         }
 
@@ -1950,16 +2118,44 @@
 
         /* =====================================================
            GOOGLE LOGIN
-           
-           REAL GOOGLE OAUTH NEEDS GOOGLE CLOUD
-           AUTHORIZATION / CLIENT ID.
+
+           Works once Google is enabled under
+           Authentication -> Providers in Supabase.
         ===================================================== */
 
-        function googleLogin() {
+        async function googleLogin() {
 
-            alert(
-                "Google Login requires Google OAuth authorization. Connect your Google Client ID to activate this feature."
-            );
+            try {
+
+                await sbClient
+                    .auth
+                    .signInWithOAuth({
+
+                        provider: "google",
+
+                        options: {
+
+                            redirectTo:
+                                window.location.origin +
+                                window.location.pathname
+                                    .replace(
+                                        "admin.html",
+                                        "dashboard.html"
+                                    )
+
+                        }
+
+                    });
+
+            }
+
+            catch (error) {
+
+                showError(
+                    describeAuthError(error)
+                );
+
+            }
 
         }
 
@@ -1967,7 +2163,7 @@
 
         /* =====================================================
            WHATSAPP LOGIN
-           
+
            REAL WHATSAPP AUTH REQUIRES META / WHATSAPP
            BUSINESS CONFIGURATION.
         ===================================================== */
