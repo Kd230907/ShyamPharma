@@ -261,7 +261,7 @@ async function displayProducts() {
                             <strong>
                                 ₹${Number(
                                     product.rate || 0
-                                ).toFixed(0)}
+                                ).toFixed(2)}
                             </strong>
 
                         </div>
